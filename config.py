@@ -1,26 +1,35 @@
 """
-问答模型 - 配置文件
+问答模型 - 防过拟合精调配置 (175M参数量级)
 """
 import torch
 
-# 词汇表大小
-vocab_size = 50000
-# 词嵌入维度
-embed_dim = 128
-# 隐藏层维度
-hidden_dim = 256
-# 学习率
-lr = 0.001
-# 训练轮数
-epochs = 10
-# 批量大小
-batch_size = 32
-# dropout率
-dropout = 0.3
-# 最大序列长度
-max_context_len = 80
-max_query_len = 20
+# 词汇表
+vocab_size = 32000
+embed_dim = 768
+hidden_dim = 768
+num_model_layers = 4
+num_heads = 12
+
+# 训练
+lr = 3e-4
+epochs = 50            # 多训一点，但早停会提前截断
+batch_size = 8
+
+# ★ 防过拟合三件套 ★
+dropout = 0.3           # ↑ 0.1→0.3 大幅增强
+attn_dropout = 0.2      # 注意力额外dropout
+weight_decay = 0.1      # ↑ 0.01→0.1 更强的权重衰减
+label_smoothing = 0.1   # 标签平滑，防止过度自信
+warmup_steps = 500      # LR预热，训练初期不过拟合
+grad_clip = 1.0         # 梯度裁剪阈值
+stochastic_depth = 0.1  # 随机丢弃整层 (DropPath)
+early_stop_patience = 8 # 验证集连8轮不降就停
+
+# 数据
+max_context_len = 128
+max_query_len = 24
+num_train = 100000      # 10万条训练数据
+
 # 设备
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# 随机种子
 seed = 42

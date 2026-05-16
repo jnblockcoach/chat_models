@@ -1,124 +1,80 @@
 """
-问答模型 - 测试脚本
-加载训练好的模型进行问答示例展示
+问答模型 (175M) — 测试脚本
+加载训练好的模型，演示问答预测
 """
 import json
 import torch
-import torch.nn.functional as F
-from config import device, max_context_len, max_query_len
-from model import QAModel
+from config import max_context_len, max_query_len, device
+from model import ChatModel
 
-
-def load_model(model_path="qa_model.pth"):
-    """加载训练好的模型"""
-    model = QAModel().to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
-    print(f"模型加载成功! 参数量: {model.count_parameters():,}")
-    return model
-
-
-def load_word2idx(path="word2idx.json"):
-    """加载词典"""
-    with open(path, "r", encoding="utf-8") as f:
-        word2idx = json.load(f)
-    print(f"词典加载成功, 词汇量: {len(word2idx)}")
-    return word2idx
-
-
-def text_to_sequence(text, word2idx, max_len):
-    """将文本转为序列"""
-    unk_idx = word2idx.get("<UNK>", 1)
-    seq = [word2idx.get(char, unk_idx) for char in text]
+def text_to_seq(text, w2i, max_len):
+    seq = [w2i.get(c, w2i["<UNK>"]) for c in text]
     if len(seq) > max_len:
         seq = seq[:max_len]
     else:
-        seq = seq + [0] * (max_len - len(seq))
+        seq += [0] * (max_len - len(seq))
     return seq
 
 
-def answer_question(context, question, model, word2idx):
-    """回答问问题"""
-    c_seq = text_to_sequence(context, word2idx, max_context_len)
-    q_seq = text_to_sequence(question, word2idx, max_query_len)
-
-    x_c = torch.tensor([c_seq], dtype=torch.long).to(device)
-    x_q = torch.tensor([q_seq], dtype=torch.long).to(device)
-    q_mask = (x_q != 0).to(device)
-
-    with torch.no_grad():
-        start_logits, end_logits = model(x_c, x_q, q_mask)
-
-    start_probs = F.softmax(start_logits, dim=1)
-    end_probs = F.softmax(end_logits, dim=1)
-
-    # 找最佳区间
-    best_start = 0
-    best_end = 0
-    best_score = -1
-
-    for s in range(min(len(context), max_context_len)):
-        for e in range(s, min(s + 10, min(len(context), max_context_len))):
-            score = start_probs[0, s].item() * end_probs[0, e].item()
-            if score > best_score:
-                best_score = score
-                best_start = s
-                best_end = e
-
-    answer = context[best_start:best_end + 1]
-    return answer, best_score
-
-
 def test():
-    """测试函数"""
     print("=" * 50)
-    print("问答模型 - 测试")
-    print("=" * 50)
-
-    import os
-    if not os.path.exists("qa_model.pth") or not os.path.exists("word2idx.json"):
-        print("\n未找到模型文件 (qa_model.pth) 或词典文件 (word2idx.json)")
-        print("请先运行 train.py 训练模型")
-        return
-
-    # 加载模型和词典
-    model = load_model("qa_model.pth")
-    word2idx = load_word2idx("word2idx.json")
-
-    # 评估测试数据
-    print("\n生成测试数据并评估...")
-    from train import generate_synthetic_data, find_answer_in_seq
-    test_data = generate_synthetic_data(500)
-    split = int(0.8 * 3000)
-    test_data = test_data[split:]
-
-    correct = 0
-    total = len(test_data)
-    for context, question, answer, _, _ in test_data:
-        pred_answer, _ = answer_question(context, question, model, word2idx)
-        if pred_answer == answer:
-            correct += 1
-
-    print(f"问答准确率 (正确答案匹配): {100 * correct / total:.2f}%")
-
-    # 示例问答
-    print("\n" + "=" * 50)
-    print("问答示例展示:")
+    print("  ChatModel (175M) 问答测试")
     print("=" * 50)
 
+    # 加载模型
+    print("\n加载模型...")
+    model = ChatModel().to(device)
+    try:
+        model.load_state_dict(torch.load("chat_model.pth", map_location=device))
+        print("  ✅ 已加载 chat_model.pth")
+    except:
+        print("  ⚠️ 未找到训练好的模型，使用随机权重")
+    model.eval()
+
+    # 加载词典
+    try:
+        with open("vocab.json", "r", encoding="utf-8") as f:
+            w2i = json.load(f)
+            i2w = {v: k for k, v in w2i.items()}
+            print(f"  ✅ 已加载 vocab.json ({len(w2i)} 词)")
+    except:
+        # 用简易词典
+        chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789，。？！、：；""''（）《》—…·")
+        chars.update("的了一是不是我人在有中大上这个们到说时他要来生会也子就出下去好看自家走过小得多你")
+        w2i = {"<PAD>": 0, "<UNK>": 1}
+        for c in sorted(chars):
+            w2i[c] = len(w2i)
+        i2w = {v: k for k, v in w2i.items()}
+        print(f"  ⚠️ 未找到vocab.json，使用默认词典 ({len(w2i)} 词)")
+
+    # 测试用例
     test_cases = [
-        ("张三出生于1990年，是一位著名的计算机科学家。", "张三出生于哪一年？"),
         ("北京是中国首都，位于华北地区。", "中国的首都是哪里？"),
         ("长江是中国最长的河流，全长约6300公里。", "中国最长的河流是什么？"),
-        ("清华大学成立于1911年，是中国最著名的大学之一。", "清华大学成立于哪一年？"),
-        ("阿里巴巴集团由马云于1999年创立。", "阿里巴巴由谁创立？"),
+        ("清华大学成立于1911年，是中国著名的大学。", "清华大学成立于哪一年？"),
+        ("太阳系有八大行星，最大的是木星。", "太阳系最大的行星是什么？"),
+        ("珠穆朗玛峰高约8848米，是世界最高峰。", "世界最高峰是什么？"),
     ]
 
-    for context, question in test_cases:
-        answer, confidence = answer_question(context, question, model, word2idx)
-        print(f"\n上下文: {context}")
-        print(f"问题: {question}")
-        print(f"答案: {answer} (置信度: {confidence:.4f})")
+    print(f"\n问答演示 ({len(test_cases)} 个问题):")
+    for ctx, q in test_cases:
+        c_seq = torch.tensor([text_to_seq(ctx, w2i, max_context_len)]).to(device)
+        q_seq = torch.tensor([text_to_seq(q, w2i, max_query_len)]).to(device)
+
+        with torch.no_grad():
+            start, end = model(c_seq, q_seq)
+            pred_s = start.argmax(1).item()
+            pred_e = end.argmax(1).item()
+
+        # 抽取答案文本
+        if pred_s <= pred_e and pred_e < len(ctx):
+            answer = ctx[pred_s:pred_e + 1]
+        else:
+            answer = f"[位置异常: {pred_s}~{pred_e}]"
+
+        print(f"\n  上下文: {ctx}")
+        print(f"  问题:   {q}")
+        print(f"  预测:   {answer}")
 
 
 if __name__ == "__main__":

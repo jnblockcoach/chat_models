@@ -1,0 +1,5 @@
+# 训练输出
+*.pth
+vocab.json
+training_status.json
+__pycache__/
